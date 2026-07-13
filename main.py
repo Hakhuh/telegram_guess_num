@@ -6,6 +6,8 @@ from random import randint
 import json
 from json import JSONDecodeError
 from collections import defaultdict
+import logging
+import sys
 
 load_dotenv()
 TOKEN = os.getenv("token")
@@ -13,45 +15,66 @@ TOKEN = os.getenv("token")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+logging.getLogger("aiogram").setLevel(logging.WARNING)
+
+fmt = logging.Formatter("[{levelname:8}] [{asctime}]  {filename}:{lineno} - {name} - {message}", style="{")
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+file_logger = logging.FileHandler("log1.log", "w", encoding='utf-8')
+file_logger.setFormatter(fmt)
+logger.addHandler(file_logger)
+
+print_logger = logging.StreamHandler(sys.stdout)
+print_logger.setFormatter(fmt)
+logger.addHandler(print_logger)
+
+
+
 @dp.startup()
 async def read_database():  # загружает файлы с id чатов словарями в код
 
-    print("BOT STARTED")
+    logger.info("BOT STARTED")
     global chats
     global chats2
 
     try:
         with open("chats.json", "r", encoding='utf-8') as f:
             chats = json.load(f)
-            print("chats succesfully loaded")
+            logger.info("chats succesfully loaded")
     except FileNotFoundError, JSONDecodeError:
         chats = {}
+        logger.warning("chats database empty")
 
     try:
         with open("chats2.json", "r", encoding='utf-8') as file:
             my_dict = json.load(file)
             chats2 = defaultdict(dict, my_dict)  # нужен что б можно было создать вложенный словарь без ошибки
-            print("chats2 succesfully loaded")
+            logger.info("chats2 succesfully loaded")
     except FileNotFoundError, JSONDecodeError:
         chats2 = {}
         chats2 = defaultdict(dict)  # нужен что б можно было создать вложенный словарь без ошибки
+        logger.warning("chats2 database empty")
 
 def set_min(chat_id, num):  # по id телеграм чата ставит минимальное число
 
     chats2[str(chat_id)]["min"] = num 
-    print(f"min number {num} for chat {chat_id} applied")
+    logger.info("min number %s for chat %s applied", num, chat_id)
     
 
 def set_max(chat_id, num):  # по id телеграм чата ставит максимальное число
 
     chats2[str(chat_id)]["max"] = num
-    print(f"max number {num} for chat {chat_id} applied")
+    logger.info("max number %s for chat %s applied", num, chat_id)
     
 
 def are_in_chats2(chat_id: int):  # если пользователь/группа впервые запустил(и) бота
     if str(chat_id) not in chats2:
         set_min(chat_id, 1)
         set_max(chat_id, 100)
+        logger.info("chat %s started for the first time", chat_id)
+        logger.info("for chat %s min = 1, max = 100", chat_id)
 
 
 
@@ -59,9 +82,9 @@ async def ugadayka_start(message):  # запускает бота комманд
     if chats2[str(message.chat.id)]["min"] >= chats2[str(message.chat.id)]["max"]:  
         await message.reply("Минимальное значение /min не должно быть больше или равно максимальному значению /max")
         return
-    print(f"chat {str(message.chat.id)} started")
+    logger.info("chat %s started", message.chat.id)
     chats[str(message.chat.id)] = randint(chats2[str(message.chat.id)]["min"], chats2[str(message.chat.id)]["max"])
-    print(f"new chat and it's num in dict chats ({str(message.chat.id)})")
+    logger.info("new chat and it's num in dict chats (%s)", message.chat.id)
     await message.reply(f"Здравствуйте! Это числовая угадайка! я загадал число от {chats2[str(message.chat.id)]["min"]} до {chats2[str(message.chat.id)]["max"]}, а вы попробуйте его отгадать" \
                         " \n Пишите, пожалуйста только целые числа для правильной работы бота")
 
@@ -73,7 +96,7 @@ async def ugadayka(message, num: str):  # сама игра
 
     if str(message.chat.id) not in chats:  # если пользователь впервые
         chats[str(message.chat.id)] = randint(chats2[str(message.chat.id)]["min"], chats2[str(message.chat.id)]["max"])
-        print(f"new chat and it's num in dict chats ({str(message.chat.id)})")
+        logger.info("new chat and it's num in dict chats (%s)", message.chat.id)
     try:
         user_num = int(num)
     except ValueError, TypeError:
@@ -88,7 +111,7 @@ async def ugadayka(message, num: str):  # сама игра
             chats[str(message.chat.id)] = randint(chats2[str(message.chat.id)]["min"], chats2[str(message.chat.id)]["max"])
             await message.answer("Я загадал новое число, попробуйте угадать :)")
 
-    
+
 
 @dp.message(Command("start", "again"), F.chat.type == "private")
 async def start_handler(message):
@@ -99,12 +122,12 @@ async def start_handler(message):
 @dp.message(Command("help"), F.chat.type == "private")
 async def ugadayka_help(message):
     are_in_chats2(message.chat.id)
-    print(f"chat {message.chat.id} need help")
+    logger.info("chat %s need help", message.chat.id)
     await message.reply("Это бот числовая угадайка, я загадал для вас число, а вы пробуйте отгадать.\n" \
                         "Если вы хотите попробовать заново введите комманды /start либо /again\n" \
                         "Вы так же можете ввести минимальное значение числа которое я буду загадывать коммандой /min\n" \
                         "Или вы так же можете ввести максимальное значение числа которое я буду загадывать коммандой /max\n")  
-    print(f"now chat {message.chat.id} don't need help")
+    logger.info("now chat %s don't need help", message.chat.id)
 
 @dp.message(Command("min"), F.chat.type == "private")
 async def min_handler(message, command: CommandObject):
@@ -179,8 +202,11 @@ async def ugadayka_command(message, command: CommandObject):
 async def save_database():  # сохраняет данные двух файлов при выключении бота
     with open("chats.json", "w", encoding='utf-8') as f:
         json.dump(chats, f)
+        logger.info("database chats saved succesfully")
     with open("chats2.json", "w", encoding='utf-8') as file:
         json.dump(chats2, file)
+        logger.info("database chats2 saved succesfully")
+    logger.info("BOT STOPED")
 
 if __name__ == "__main__":
     dp.run_polling(bot)

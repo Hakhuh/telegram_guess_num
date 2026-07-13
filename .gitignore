@@ -1,5 +1,6 @@
 .env
 chats.json
 chats2.json
+log1.log
 .venv/
 __pycache__/
